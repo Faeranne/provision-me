@@ -1,0 +1,27 @@
+TEMP_DIR=$(mktemp -d)
+USER=$1
+DOT_REPO=$USER/dotfiles.git
+PROVISION_REPO=$USER/provision-me.git
+sudo apt install -y git
+cd $TEMP_DIR
+wget https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 -O jq
+chmod +x jq
+PASS=$(pass github || ssh-askpass)
+REQUEST="{\"title\":\"$(hostname)-provisioned\",\"key\":\"$(cat ~/.ssh/id_rsa.pub)\"}"
+CODE=$(curl -d "$REQUEST" https://api.github.com/user/keys -u "$USER:$PASS" -D headers -w "%{http_code}" -o response)
+if [ ! $CODE == 201 ]; then
+  echo "Enter GitHub OTP:";
+  read OTP;
+  CODE=$(curl -d "$REQUEST" https://api.github.com/user/keys -u "$USER:$PASS" -D headers -w "%{http_code}" -H "X-GitHub-OTP: $OTP" -o response)
+fi
+echo "GitHub SSH Key provisioned. Aquiring dotfiles and rcm."
+echo "Installing rcm repository"
+wget -qO - https://apt.thoughtbot.com/thoughtbot.gpg.key | sudo apt-key add -
+echo "deb http://apt.thoughtbot.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/thoughtbot.list
+sudo apt-get update -y
+sudo apt-get install -y rcm
+echo "Downloading dotfiles"
+git clone git@github.com:$DOT_REPO $HOME/.dotfiles 
+rcup
+git clone git@github.com:$PROVISION_REPO $HOME/.provision
+sudo apt install $(cat $HOME/.provision/pkgs)
